@@ -13,6 +13,8 @@ from typing import Any
 from aiohttp import web
 
 from kiro_crew import platform_compat
+from kiro_crew import agent as _agent_mod
+from kiro_crew.agent import kiro_agents_dir_path
 from kiro_crew.config.paths import data_home, kiro_agents_dir
 from kiro_crew.dashboard.state import DashboardState
 from kiro_crew.mcp_gateway import is_gateway_supported
@@ -175,12 +177,9 @@ def _get_apply_lock() -> asyncio.Lock:
 
 def _write_mcp_json(data: dict) -> None:
     """Atomically write global mcp.json to prevent partial reads."""
-    from kiro_crew.agent import (  # noqa: F811  # circular import: agent imports handlers
-        _atomic_json_write,
-    )
 
     _GLOBAL_MCP_JSON.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_json_write(_GLOBAL_MCP_JSON, data)
+    _agent_mod._atomic_json_write(_GLOBAL_MCP_JSON, data)
 
 
 # ── MCP Servers ──
@@ -317,11 +316,8 @@ def _sync_mcp_to_agent_unlocked(name: str, enabled: bool, *, remove: bool = Fals
         cfg.get("mcpServers", {}).pop(alias, None)
         cfg.get("mcpServers", {}).pop(name, None)
     try:
-        from kiro_crew.agent import (  # noqa: F811 circular: agent imports handlers
-            _atomic_json_write,
-        )
 
-        _atomic_json_write(path, cfg)
+        _agent_mod._atomic_json_write(path, cfg)
     except OSError as exc:
         logger.warning("Cannot write agent config %s: %s", path, exc)
 
@@ -439,11 +435,8 @@ def _sync_mcp_to_agent_batch_unlocked(names: list[str], enabled: bool) -> None:
     if not changed:
         return
     try:
-        from kiro_crew.agent import (  # noqa: F811 circular: agent imports handlers
-            _atomic_json_write,
-        )
 
-        _atomic_json_write(path, cfg)
+        _agent_mod._atomic_json_write(path, cfg)
     except OSError as exc:
         logger.warning("Cannot write agent config %s: %s", path, exc)
 
@@ -585,7 +578,6 @@ async def api_mcp_active(request: web.Request) -> web.Response:
     when ``--agent <name>`` is passed.  For kirocrew (or no agent),
     reads from global ``~/.kiro/settings/mcp.json`` as before.
     """
-    from kiro_crew.agent import kiro_agents_dir_path  # noqa: F811
 
     agent = request.query.get("agent", "")
 
@@ -1131,12 +1123,9 @@ def _load_json_or_empty(path: Path) -> dict[str, Any]:
 
 def _atomic_write(path: Path, data: dict) -> None:
     """Atomic JSON write; reuses the agent helper."""
-    from kiro_crew.agent import (  # noqa: F811  # circular: agent imports dashboard handlers
-        _atomic_json_write,
-    )
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_json_write(path, data)
+    _agent_mod._atomic_json_write(path, data)
 
 
 def _find_server_spec_anywhere(name: str) -> dict | None:
@@ -1779,9 +1768,8 @@ async def _do_mcp_apply(request: web.Request) -> web.Response:
     try:
         # circular import: kiro_crew.agent imports dashboard handlers, so
         # this is delayed to runtime to break the cycle at module load.
-        from kiro_crew.agent import rebuild_agent_config  # noqa: F811
 
-        await asyncio.to_thread(rebuild_agent_config)
+        await asyncio.to_thread(_agent_mod.rebuild_agent_config)
         rebuild_ok = True
     except Exception as exc:
         # Rebuild failures can surface file paths, env var contents, or
@@ -1864,7 +1852,6 @@ async def api_mcp_gateway_enable(request: web.Request) -> web.Response:
     so the dashboard session stays authenticated.  Returns the verified state
     ``{ok, enabled, running, ping_ok}``.
     """
-    from kiro_crew.agent import _atomic_json_write  # circular import
     from kiro_crew.config.loader import config_path  # circular import
     from kiro_crew.dashboard.handlers.agents import _get_config_lock  # circular import
 
@@ -1910,7 +1897,7 @@ async def api_mcp_gateway_enable(request: web.Request) -> web.Response:
                 return web.json_response({"error": "mcp_gateway is not an object"}, status=500)
             section["enabled"] = enabled
             path.parent.mkdir(parents=True, exist_ok=True)
-            _atomic_json_write(path, data)
+            _agent_mod._atomic_json_write(path, data)
         try:
             result = await apply(enabled)
         except Exception as exc:
@@ -1947,7 +1934,6 @@ async def api_mcp_gateway_servers(request: web.Request) -> web.Response:
     ``poolable:true``.  HTTP/SSE servers are shared by nature (not poolable);
     denylisted servers (``UNPOOLABLE_SERVERS``) can never be pooled.
     """
-    from kiro_crew.agent import kiro_agents_dir_path
     from kiro_crew.config.loader import KiroCrewConfig  # noqa: F811
     from kiro_crew.mcp_gateway.rewriter import UNPOOLABLE_SERVERS
 
@@ -2012,7 +1998,6 @@ async def api_mcp_gateway_set_poolable(request: web.Request) -> web.Response:
     gateway is disabled, the allowlist is persisted only (it takes effect when
     the gateway is enabled).  Returns ``{ok, name, poolable, ...}``.
     """
-    from kiro_crew.agent import _atomic_json_write
     from kiro_crew.config.loader import config_path  # noqa: F811
     from kiro_crew.dashboard.handlers.agents import _get_config_lock  # circular: agents imports mcp
 
@@ -2048,7 +2033,7 @@ async def api_mcp_gateway_set_poolable(request: web.Request) -> web.Response:
             servers_list = [s for s in servers_list if s != name]
         section["poolable_servers"] = sorted(set(servers_list))
         path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_json_write(path, data)
+        _agent_mod._atomic_json_write(path, data)
 
     state: DashboardState = request.app["state"]
     apply = getattr(state, "_mcp_gateway_apply_poolable", None)

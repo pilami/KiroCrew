@@ -11,6 +11,8 @@ from pathlib import Path
 
 from aiohttp import web
 
+from kiro_crew import agent as _agent_mod
+from kiro_crew.agent import _VALID_HOOK_EVENTS, kiro_agents_dir_path
 from kiro_crew.config.loader import KiroCrewConfig, data_home
 from kiro_crew.dashboard.state import DashboardState
 from kiro_crew.executors import run_in_embed_pool
@@ -49,7 +51,6 @@ async def api_hooks(request: web.Request) -> web.Response:
 
 async def api_kiro_hooks(request: web.Request) -> web.Response:
     """GET /api/kiro-hooks — read-only view of kiro-cli agent hooks from kirocrew.json."""
-    from kiro_crew.agent import _VALID_HOOK_EVENTS, _shipped_defaults, kiro_agents_dir_path
     from kiro_crew.platform import redact_via_context as redact
 
     agent_cfg = kiro_agents_dir_path() / "kirocrew.json"
@@ -60,7 +61,7 @@ async def api_kiro_hooks(request: web.Request) -> web.Response:
         hooks = {}
     # Load bundled defaults to tag source
     try:
-        raw = json.loads(_shipped_defaults().read_text())
+        raw = json.loads(_agent_mod._shipped_defaults().read_text())
         bundled = raw.get("hooks", {}) if isinstance(raw, dict) else {}
     except (OSError, json.JSONDecodeError):
         bundled = {}
